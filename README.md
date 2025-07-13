@@ -21,6 +21,9 @@ chmod u+x run.sh && ./run.sh
 Le fichier run\.sh créer un environnement virtuel et installe les dépendances nécessaire
 si elle ne le sont pas déjà puis lance le programme.
 
+Pour que le dev soit plus simple, utiliser le notebook jupyter (plus simple pour faire un proto)
+Une fois la phase de recherche avec le notebook validée, mettre le code en dur dans le fichier main.py
+
 ---
 
 ## Lancement du programme pour l'évaluateur
