@@ -35,7 +35,7 @@ python main.py
 ---
 
 TODO liste:
-- [ ] Appliquer un algorithme de recalage pour aligner les deux images (voir section 1)
+- [X] Appliquer un algorithme de recalage pour aligner les deux images (voir section 1)
 - [ ] Segmenter la tumeurs dans les deux volumes (voir section 2)
 - [ ] Calculer et visualiser les différences entre les deux tumeurs (voir section 3)
 
