@@ -1,7 +1,5 @@
 # VITK
 
----
-
 Groupe A
 Membres:
 - Charly Saugey
@@ -45,10 +43,6 @@ TODO liste:
 
 # Section 1: Recalage d'image
 
----
-
 # Section 2 : Segmentation
-
----
 
 # Section 3 : Visualisation
