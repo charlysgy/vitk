@@ -231,10 +231,19 @@ class InteractiveImageViewer:
             self.coronal_slice = min(self.coronal_slice + 1, self.shape[1] - 1)
         elif key == 'Next':   # Page Down
             self.coronal_slice = max(self.coronal_slice - 1, 0)
+        elif key == 'a':
+            # Vérification d'alignement à la position actuelle
+            self.check_alignment_interactively()
+        elif key == 'd':
+            # Toggle mode différence
+            self.toggle_difference_mode()
+        elif key == 's':
+            # Sauvegarder rapport d'alignement
+            self.save_alignment_report()
         else:
             return
         
-        if key not in ['q', 'Escape']:
+        if key not in ['q', 'Escape', 'a', 'd', 's']:
             self.update_slices()
             self.print_current_position()
     
@@ -274,9 +283,15 @@ class InteractiveImageViewer:
     def print_controls(self):
         """Affiche les contrôles disponibles"""
         print("\n=== CONTRÔLES ===")
+        print("NAVIGATION:")
         print("  ↑/↓ : Navigation axiale")
         print("  ←/→ : Navigation sagittale") 
         print("  Page Up/Down : Navigation coronale")
+        print("\nVÉRIFICATION D'ALIGNEMENT:")
+        print("  'a' : Analyser l'alignement à la position actuelle")
+        print("  'd' : Activer/désactiver le mode différence")
+        print("  's' : Sauvegarder rapport d'alignement")
+        print("\nAUTRES:")
         print("  'q' ou 'Escape' : Quitter")
         print("  Fermeture fenêtre : Alt+F4 ou bouton X")
     
@@ -293,7 +308,122 @@ class InteractiveImageViewer:
         except Exception as e:
             print(f"Erreur lors de l'affichage: {e}")
             self.cleanup_and_exit()
-
+    
+    def check_alignment_interactively(self):
+        """Affiche des informations d'alignement pour la position actuelle"""
+        print(f"\n=== VÉRIFICATION D'ALIGNEMENT À LA POSITION ACTUELLE ===")
+        print(f"Position: Axial={self.axial_slice}, Coronal={self.coronal_slice}, Sagittal={self.sagittal_slice}")
+        
+        # Extraire les tranches actuelles
+        axial1 = self.volume1[self.axial_slice, :, :]
+        axial2 = self.volume2[self.axial_slice, :, :]
+        
+        coronal1 = self.volume1[:, self.coronal_slice, :]
+        coronal2 = self.volume2[:, self.coronal_slice, :]
+        
+        sagittal1 = self.volume1[:, :, self.sagittal_slice]
+        sagittal2 = self.volume2[:, :, self.sagittal_slice]
+        
+        # Calculer les corrélations
+        def safe_correlation(slice1, slice2):
+            if np.std(slice1) > 0 and np.std(slice2) > 0:
+                corr = np.corrcoef(slice1.flatten(), slice2.flatten())[0, 1]
+                return corr if not np.isnan(corr) else 0.0
+            return 0.0
+        
+        corr_axial = safe_correlation(axial1, axial2)
+        corr_coronal = safe_correlation(coronal1, coronal2)
+        corr_sagittal = safe_correlation(sagittal1, sagittal2)
+        
+        print(f"Corrélations:")
+        print(f"  Axiale  : {corr_axial:.3f} {'✅' if corr_axial > 0.7 else '❌' if corr_axial < 0.5 else '⚠️'}")
+        print(f"  Coronale: {corr_coronal:.3f} {'✅' if corr_coronal > 0.7 else '❌' if corr_coronal < 0.5 else '⚠️'}")
+        print(f"  Sagittale: {corr_sagittal:.3f} {'✅' if corr_sagittal > 0.7 else '❌' if corr_sagittal < 0.5 else '⚠️'}")
+        
+        # Moyennes d'intensité pour détecter des différences importantes
+        print(f"Intensités moyennes:")
+        print(f"  Vol1 - Axiale: {axial1.mean():.1f}, Coronale: {coronal1.mean():.1f}, Sagittale: {sagittal1.mean():.1f}")
+        print(f"  Vol2 - Axiale: {axial2.mean():.1f}, Coronale: {coronal2.mean():.1f}, Sagittale: {sagittal2.mean():.1f}")
+    
+    def toggle_difference_mode(self):
+        """Active/désactive l'affichage des différences"""
+        if not hasattr(self, 'difference_mode'):
+            self.difference_mode = False
+        
+        self.difference_mode = not self.difference_mode
+        
+        if self.difference_mode:
+            print("Mode différence ACTIVÉ - Affichage des différences entre volumes")
+            self.setup_difference_pipeline()
+        else:
+            print("Mode différence DÉSACTIVÉ - Retour à l'affichage normal")
+            self.restore_normal_pipeline()
+        
+        self.update_slices()
+    
+    def setup_difference_pipeline(self):
+        """Configure le pipeline pour afficher les différences"""
+        # Calculer le volume de différence seulement si ce n'est pas déjà fait
+        if not hasattr(self, 'vtk_diff'):
+            diff_volume = np.abs(self.volume2 - self.volume1)
+            self.vtk_diff = simple_numpy_to_vtk(diff_volume)
+        
+        # Reconfigurer les pipelines pour afficher les différences
+        orientations = ['axial', 'coronal', 'sagittal']
+        
+        for vol_idx in range(2):
+            for orient_idx, orientation in enumerate(orientations):
+                reslice_idx = vol_idx * 3 + orient_idx
+                reslice = self.reslice_cursors[reslice_idx]
+                
+                if vol_idx == 0:
+                    # Volume 1 normal
+                    reslice.SetInputData(self.vtk_volume1)
+                else:
+                    # Volume 2 remplacé par les différences
+                    reslice.SetInputData(self.vtk_diff)
+                
+                reslice.Update()
+    
+    def restore_normal_pipeline(self):
+        """Restaure le pipeline normal (sans différences)"""
+        orientations = ['axial', 'coronal', 'sagittal']
+        volumes = [self.vtk_volume1, self.vtk_volume2]
+        
+        for vol_idx, volume in enumerate(volumes):
+            for orient_idx, orientation in enumerate(orientations):
+                reslice_idx = vol_idx * 3 + orient_idx
+                reslice = self.reslice_cursors[reslice_idx]
+                
+                # Restaurer le volume original
+                reslice.SetInputData(volume)
+                reslice.Update()
+    
+    def save_alignment_report(self):
+        """Sauvegarde un rapport d'alignement dans un fichier"""
+        try:
+            # Import local pour éviter les problèmes de dépendances circulaires
+            try:
+                from .utils import check_volume_alignment
+            except ImportError:
+                from utils import check_volume_alignment
+            
+            alignment_info = check_volume_alignment(self.volume1, self.volume2)
+            
+            with open("alignment_report.txt", "w", encoding="utf-8") as f:
+                f.write("RAPPORT D'ALIGNEMENT SPATIAL\n")
+                f.write("="*50 + "\n\n")
+                f.write(f"Dimensions: {self.volume1.shape}\n")
+                f.write(f"Alignement correct: {'✅ OUI' if alignment_info.get('is_well_aligned', False) else '❌ NON'}\n\n")
+                
+                f.write("RECOMMANDATIONS:\n")
+                for i, rec in enumerate(alignment_info.get('recommendations', []), 1):
+                    f.write(f"{i}. {rec}\n")
+            
+            print("✅ Rapport d'alignement sauvegardé dans 'alignment_report.txt'")
+        except Exception as e:
+            print(f"❌ Erreur lors de la sauvegarde: {e}")
+            
 
 def show_interactive_comparison(volume1, volume2):
     """

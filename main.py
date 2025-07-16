@@ -21,12 +21,13 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes
+    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes
+    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report
+    import config
 
 
 def main():
@@ -35,8 +36,8 @@ def main():
     
     # Configuration des chemins
     data_dir = Path("./Data")
-    image1_path = data_dir / "case6_gre1.nrrd"
-    image2_path = data_dir / "case6_gre2.nrrd"
+    image1_path = data_dir / config.DEFAULT_IMAGE1
+    image2_path = data_dir / config.DEFAULT_IMAGE2
     
     # Vérification de l'existence des fichiers
     if not image1_path.exists():
@@ -72,6 +73,14 @@ def main():
         
         # Comparaison des volumes
         compare_volumes(array1, array2, "case6_gre1", "case6_gre2")
+        
+        # Vérification de l'alignement spatial
+        print("\n" + "="*50)
+        print("VÉRIFICATION DE L'ALIGNEMENT SPATIAL")
+        print("="*50)
+        
+        alignment_info = check_volume_alignment(array1, array2, "case6_gre1", "case6_gre2")
+        create_alignment_visual_report(array1, array2, alignment_info, "case6_gre1", "case6_gre2")
         
         # Test de conversion VTK
         print("\n" + "="*50)
