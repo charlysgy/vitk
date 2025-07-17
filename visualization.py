@@ -48,9 +48,9 @@ class InteractiveImageViewer:
         self.calculate_intensity_levels()
         
         # Position actuelle des coupes
-        self.axial_slice = self.shape[0] // 2
-        self.coronal_slice = self.shape[1] // 2
-        self.sagittal_slice = self.shape[2] // 2
+        self.axial_slice = 50 # A la mano
+        self.coronal_slice = 70 # A la mano
+        self.sagittal_slice = 85 # A la mano
         
         # Conversion en VTK - utiliser la version simplifiée pour débugger
         self.vtk_volume1 = simple_numpy_to_vtk(volume1)
