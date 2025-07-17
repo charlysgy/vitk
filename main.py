@@ -25,93 +25,13 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report
+    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report
+    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images
     import config
-
-
-def register_vtk_images(fixed_vtk_image, moving_vtk_image):
-    """
-    Perform image registration between two 3D images (vtkImageData).
-    Returns the registered moving image as vtkImageData.
-    """
-    # Convert VTK images to numpy arrays
-    def vtk_to_numpy_image(vtk_image):
-        extent = vtk_image.GetExtent()
-        dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
-        scalars = vtk_image.GetPointData().GetScalars()
-        np_image = numpy_support.vtk_to_numpy(scalars)
-        np_image = np_image.reshape(dims[::-1])  # z, y, x
-        return np_image
-
-    fixed_np = vtk_to_numpy_image(fixed_vtk_image)
-    moving_np = vtk_to_numpy_image(moving_vtk_image)
-
-    # Convert numpy arrays to ITK images
-    fixed_itk = itk.image_view_from_array(fixed_np.astype(np.float32))
-    moving_itk = itk.image_view_from_array(moving_np.astype(np.float32))
-
-    # Perform registration using ITK (rigid)
-    TransformType = itk.TranslationTransform[itk.D, 3]
-    initial_transform = TransformType.New()
-
-    MetricType = itk.MattesMutualInformationImageToImageMetricv4[
-        type(fixed_itk), type(moving_itk)
-    ]
-    metric = MetricType.New()
-    metric.SetNumberOfHistogramBins(50)
-
-    OptimizerType = itk.RegularStepGradientDescentOptimizerv4[itk.D]
-    optimizer = OptimizerType.New()
-    optimizer.SetLearningRate(4.0)
-    optimizer.SetMinimumStepLength(0.001)
-    optimizer.SetNumberOfIterations(100)
-
-    RegistrationType = itk.ImageRegistrationMethodv4[
-        type(fixed_itk), type(moving_itk)
-    ]
-    registration = RegistrationType.New()
-    registration.SetFixedImage(fixed_itk)
-    registration.SetMovingImage(moving_itk)
-    registration.SetInitialTransform(initial_transform)
-    registration.SetMetric(metric)
-    registration.SetOptimizer(optimizer)
-    registration.SetShrinkFactorsPerLevel([4, 2, 1])
-    registration.SetSmoothingSigmasPerLevel([2, 1, 0])
-
-    registration.Update()
-    final_transform = registration.GetTransform()
-
-    # Resample moving image
-    ResampleFilterType = itk.ResampleImageFilter[
-        type(moving_itk), type(fixed_itk)
-    ]
-    resampler = ResampleFilterType.New()
-    resampler.SetInput(moving_itk)
-    resampler.SetTransform(final_transform)
-    resampler.SetUseReferenceImage(True)
-    resampler.SetReferenceImage(fixed_itk)
-    resampler.SetInterpolator(
-        itk.LinearInterpolateImageFunction[type(fixed_itk), itk.D].New()
-    )
-    resampler.Update()
-
-    moved_itk = resampler.GetOutput()
-    moved_np = itk.array_view_from_image(moved_itk)
-
-    # Convert back to VTK image
-    moved_flat = moved_np.astype(np.float32).ravel(order='C')
-    vtk_moved = vtk.vtkImageData()
-    vtk_moved.SetDimensions(moved_np.shape[::-1])
-    vtk_moved.AllocateScalars(vtk.VTK_FLOAT, 1)
-    vtk_array = numpy_support.numpy_to_vtk(moved_flat, deep=True, array_type=vtk.VTK_FLOAT)
-    vtk_moved.GetPointData().SetScalars(vtk_array)
-
-    return vtk_moved
 
 
 def main():

@@ -8,9 +8,8 @@ Ce projet a été restructuré en plusieurs modules spécialisés pour une meill
 
 ```
 vitk/
-├── __init__.py           # Package principal avec imports
-├── main_new.py          # Point d'entrée principal (nouveau)
-├── main.py              # Ancien fichier monolithique (à remplacer)
+├── __init__.py          # Package principal avec imports
+├── main.py              # Point d'entrée principal
 ├── converters.py        # Conversions ITK ↔ NumPy ↔ VTK
 ├── visualization.py     # Interface de visualisation interactive
 ├── utils.py             # Utilitaires et fonctions de debug

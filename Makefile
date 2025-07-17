@@ -45,7 +45,7 @@ setup:
 # Installation des dépendances
 install:
 	@echo "$(BLUE)📦 Installation des dépendances...$(NC)"
-	@pip install numpy vtk itk
+	@pip install scipy matplotlib numpy vtk itk
 	@echo "$(GREEN)✓ Dépendances installées$(NC)"
 
 # Vérification des dépendances
