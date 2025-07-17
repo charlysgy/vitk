@@ -66,6 +66,15 @@ class InteractiveImageViewer:
     
     def calculate_intensity_levels(self):
         """Calcule automatiquement les niveaux d'intensité optimaux"""
+        # Cas particulier : segmentation binaire
+        if np.array_equal(np.unique(self.volume1), [0, 1]) and np.array_equal(np.unique(self.volume2), [0, 1]):
+            self.min_intensity = 0
+            self.max_intensity = 1
+            self.window = 1
+            self.level = 0.5
+            print("Niveaux d'intensité (binaire) définis : Window = 1, Level = 0.5")
+            return
+
         stats = calculate_intensity_stats(self.volume1, self.volume2)
         
         if 'display' in stats:
@@ -74,7 +83,6 @@ class InteractiveImageViewer:
             self.min_intensity = stats['combined']['min_intensity']
             self.max_intensity = stats['combined']['max_intensity']
         else:
-            # Fallback si un seul volume
             self.min_intensity = stats['volume1']['percentile_1']
             self.max_intensity = stats['volume1']['percentile_99']
             self.window = self.max_intensity - self.min_intensity
@@ -83,6 +91,7 @@ class InteractiveImageViewer:
         print(f"Niveaux d'intensité calculés:")
         print(f"  Min: {self.min_intensity:.2f}, Max: {self.max_intensity:.2f}")
         print(f"  Window: {self.window:.2f}, Level: {self.level:.2f}")
+
     
     def setup_gui(self):
         """Configure l'interface graphique VTK"""
