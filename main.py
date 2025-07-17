@@ -64,15 +64,15 @@ def show_3d_tumor_change(seg1_np, seg2_np, scan_np):
         contour.SetInputData(vtk_img)
         contour.SetValue(0, 0.5)
         contour.Update()
+    
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(contour.GetOutputPort())
+        # <-- Ajout pour désactiver la coloration par scalaires
+        mapper.ScalarVisibilityOff()
+    
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
         actor.GetProperty().SetColor(color)
-        actor.GetProperty().SetDiffuseColor(color)
-        actor.GetProperty().SetDiffuse(1.0)
-        actor.GetProperty().SetAmbient(0.3)
-        actor.GetProperty().SetSpecular(0.0)
         actor.GetProperty().SetOpacity(opacity)
         actor.GetProperty().SetInterpolationToPhong()
         return actor
