@@ -18,6 +18,56 @@ from vtk.util import numpy_support
 
 import numpy as np
 import scipy.ndimage as ndi
+from scipy.ndimage import (
+    binary_opening,
+    binary_closing,
+    gaussian_filter,
+    label,
+    binary_fill_holes
+)
+
+def postprocess_segmentation(mask: np.ndarray,
+                              min_size: int = 100,
+                              apply_smoothing: bool = True,
+                              smoothing_sigma: float = 1.0) -> np.ndarray:
+    """
+    Applique un post-traitement morphologique et un lissage à un masque binaire.
+
+    Args:
+        mask (np.ndarray): Masque binaire 3D (0/1), shape (Z, Y, X)
+        min_size (int): Seuil minimal de taille (en voxels) pour conserver une région
+        apply_smoothing (bool): Appliquer un lissage par filtre gaussien
+        smoothing_sigma (float): Sigma du filtre gaussien
+
+    Returns:
+        np.ndarray: Masque post-traité (0/1)
+    """
+    # S'assurer que c’est bien un masque binaire
+    mask = (mask > 0).astype(np.uint8)
+
+    # Remplissage des trous internes
+    mask = binary_fill_holes(mask).astype(np.uint8)
+
+    # Morphologie : ouverture (nettoyage bruit), puis fermeture (remplit petits trous)
+    mask = binary_opening(mask, structure=np.ones((3, 3, 3))).astype(np.uint8)
+    mask = binary_closing(mask, structure=np.ones((3, 3, 3))).astype(np.uint8)
+
+    # Supprimer les petits objets
+    labeled, num = label(mask)
+    sizes = np.bincount(labeled.ravel())
+    sizes[0] = 0  # ignorer le fond
+    mask_clean = np.zeros_like(mask)
+
+    for i, size in enumerate(sizes):
+        if size >= min_size:
+            mask_clean[labeled == i] = 1
+
+    # Lissage optionnel des contours
+    if apply_smoothing:
+        smoothed = gaussian_filter(mask_clean.astype(np.float32), sigma=smoothing_sigma)
+        mask_clean = (smoothed > 0.5).astype(np.uint8)
+
+    return mask_clean
 
 def region_growing_segmentation(itk_image, seed: tuple[int, int, int], multiplier=2.5, iterations=5) -> np.ndarray:
     """

@@ -25,12 +25,12 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
+    from .utils import postprocess_segmentation, numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
+    from utils import postprocess_segmentation, numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
     import config
 
 
@@ -133,9 +133,10 @@ def main():
         seg2_np = region_growing_segmentation(preprocessed_volume2_itk, (85, 70, 50))
 
         # POST-TRAITEMENT\
-        # TODO
+        final1_np = postprocess_segmentation(seg1_np)
+        final2_np = postprocess_segmentation(seg2_np)
 
-        show_interactive_comparison(seg1_np, seg2_np)
+        show_interactive_comparison(final1_np, final2_np)
 
     except Exception as e:
         print(f"\nErreur: {e}")
