@@ -25,12 +25,12 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation
+    from .utils import numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation
+    from utils import numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
     import config
 
 
@@ -122,7 +122,19 @@ def main():
         print("Segmentation")
         print('=' * 50)
 
-        seg1_np, seg2_np = semi_automatic_segmentation(array1, array3, image1_itk, image2_itk, int(200), int(200))
+        # PRETRAITEMENT
+        preprocessed_volume1_np = preprocess_volume(array1)
+        preprocessed_volume2_np = preprocess_volume(array3)
+        preprocessed_volume1_itk = numpy_to_itk_image(preprocessed_volume1_np)
+        preprocessed_volume2_itk = numpy_to_itk_image(preprocessed_volume2_np)
+
+        # SEGEMENTATION
+        seg1_np = region_growing_segmentation(preprocessed_volume1_itk, (85, 70, 50))
+        seg2_np = region_growing_segmentation(preprocessed_volume2_itk, (85, 70, 50))
+
+        # POST-TRAITEMENT\
+        # TODO
+
         show_interactive_comparison(seg1_np, seg2_np)
 
     except Exception as e:

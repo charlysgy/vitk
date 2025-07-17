@@ -16,6 +16,62 @@ import vtk
 import numpy as np
 from vtk.util import numpy_support
 
+import numpy as np
+import scipy.ndimage as ndi
+
+def region_growing_segmentation(itk_image, seed: tuple[int, int, int], multiplier=2.5, iterations=5) -> np.ndarray:
+    """
+    Segmentation par croissance de région (ITK.ConfidenceConnected).
+    """
+    filter = itk.ConfidenceConnectedImageFilter.New(itk_image)
+    filter.SetSeed(seed)
+    filter.SetMultiplier(multiplier)
+    filter.SetNumberOfIterations(iterations)
+    filter.SetInitialNeighborhoodRadius(1)
+    filter.SetReplaceValue(1)
+    filter.Update()
+
+    segmentation = filter.GetOutput()
+    return itk.GetArrayFromImage(segmentation)
+
+def preprocess_volume(volume: np.ndarray, normalize: bool = True, apply_smoothing: bool = True) -> np.ndarray:
+    """
+    Applique un prétraitement standard à un volume médical 3D.
+    
+    Args:
+        volume (np.ndarray): Volume 3D d'intensité float32 (par exemple IRM, CT), shape (Z, Y, X)
+        normalize (bool): Appliquer la normalisation des intensités (0–1)
+        apply_smoothing (bool): Appliquer un floutage gaussien léger pour réduire le bruit
+        
+    Returns:
+        np.ndarray: Volume prétraité (même shape)
+    """
+    # Vérification du type
+    if not isinstance(volume, np.ndarray) or volume.ndim != 3:
+        raise ValueError("Le volume doit être un numpy.ndarray 3D (Z, Y, X)")
+
+    # Conversion en float32 pour compatibilité avec ITK, segmentation, etc.
+    volume = volume.astype(np.float32)
+
+    # Suppression des valeurs aberrantes (clipping à 1e et 99e percentile)
+    p1, p99 = np.percentile(volume, [1, 99])
+    volume = np.clip(volume, p1, p99)
+
+    # Normalisation optionnelle (0-1)
+    if normalize:
+        vmin, vmax = volume.min(), volume.max()
+        if vmax > vmin:
+            volume = (volume - vmin) / (vmax - vmin)
+        else:
+            volume = np.zeros_like(volume)
+
+    # Floutage optionnel (gaussien isotrope sigma=1)
+    if apply_smoothing:
+        volume = ndi.gaussian_filter(volume, sigma=1)
+
+    return volume
+
+
 def automatic_segmentation(image1_np, image2_np, image1_itk, image2_itk):
     """
     Effectue une segmentation automatique d'une image en utilisant un seuil.
