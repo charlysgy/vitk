@@ -18,7 +18,6 @@ from pathlib import Path
 import itk
 import vtk
 import numpy as np
-from vtk.util import numpy_support
 
 # Import des modules locaux
 try:
@@ -29,82 +28,9 @@ try:
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
-    from visualization import show_interactive_comparison
+    from visualization import show_interactive_comparison, show_3d_tumor_change
     from utils import postprocess_segmentation, numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
     import config
-
-def show_3d_tumor_change(seg1_np, seg2_np, scan_np):
-    """
-    Affiche le crâne issu du scan (gris), la tumeur 1 (bleu) et la tumeur 2 (rouge) dans la même scène 3D.
-    """
-    import vtk
-
-    def numpy_to_vtk_mask(np_mask):
-        dims = np_mask.shape[::-1]
-        vtk_img = vtk.vtkImageData()
-        vtk_img.SetDimensions(dims)
-        vtk_img.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
-        flat = np_mask.astype(np.uint8).ravel(order='C')
-        vtk_arr = numpy_support.numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
-        vtk_img.GetPointData().SetScalars(vtk_arr)
-        return vtk_img
-
-    def numpy_to_vtk_image(np_img):
-        dims = np_img.shape[::-1]
-        vtk_img = vtk.vtkImageData()
-        vtk_img.SetDimensions(dims)
-        vtk_img.AllocateScalars(vtk.VTK_FLOAT, 1)
-        flat = np_img.astype(np.float32).ravel(order='C')
-        vtk_arr = numpy_support.numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_FLOAT)
-        vtk_img.GetPointData().SetScalars(vtk_arr)
-        return vtk_img
-
-    def make_surface(vtk_img, color, opacity=0.4):
-        contour = vtk.vtkMarchingCubes()
-        contour.SetInputData(vtk_img)
-        contour.SetValue(0, 0.5)
-        contour.Update()
-    
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(contour.GetOutputPort())
-        # <-- Ajout pour désactiver la coloration par scalaires
-        mapper.ScalarVisibilityOff()
-    
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        actor.GetProperty().SetColor(color)
-        actor.GetProperty().SetOpacity(opacity)
-        actor.GetProperty().SetInterpolationToPhong()
-        return actor
-
-    # --- Génération de la surface du crâne ---
-    # On suppose que les valeurs élevées correspondent à l'os (par exemple > 200)
-    skull_threshold = 200  # À ajuster selon ton scanner
-    skull_mask = (scan_np > skull_threshold).astype(np.uint8)
-    vtk_skull = numpy_to_vtk_mask(skull_mask)
-    actor_skull = make_surface(vtk_skull, (0.8, 0.8, 0.8), 0.05)  # Gris translucide
-
-    # --- Génération des surfaces des tumeurs ---
-    vtk1 = numpy_to_vtk_mask(seg1_np)
-    vtk2 = numpy_to_vtk_mask(seg2_np)
-    actor1 = make_surface(vtk1, (0, 0, 1), 0.7)  # Bleu
-    actor2 = make_surface(vtk2, (1, 0, 0), 0.7)  # Rouge
-
-    # --- Affichage ---
-    renderer = vtk.vtkRenderer()
-    renderer.AddActor(actor_skull)
-    renderer.AddActor(actor1)
-    renderer.AddActor(actor2)
-    renderer.SetBackground(0.1, 0.1, 0.1)
-
-    render_window = vtk.vtkRenderWindow()
-    render_window.AddRenderer(renderer)
-    render_window.SetSize(900, 900)
-
-    interactor = vtk.vtkRenderWindowInteractor()
-    interactor.SetRenderWindow(render_window)
-    render_window.Render()
-    interactor.Start()
 
 def main():
     """Point d'entrée principal de l'application"""
