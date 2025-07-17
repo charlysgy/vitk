@@ -11,8 +11,206 @@ Fonctions:
     - calculate_intensity_stats: Calcule les statistiques d'intensité
 """
 
+import itk
+import vtk
 import numpy as np
+from vtk.util import numpy_support
 
+import numpy as np
+import scipy.ndimage as ndi
+from scipy.ndimage import (
+    binary_opening,
+    binary_closing,
+    gaussian_filter,
+    label,
+    binary_fill_holes
+)
+
+def postprocess_segmentation(mask: np.ndarray,
+                              min_size: int = 100,
+                              apply_smoothing: bool = True,
+                              smoothing_sigma: float = 1.0) -> np.ndarray:
+    """
+    Applique un post-traitement morphologique et un lissage à un masque binaire.
+
+    Args:
+        mask (np.ndarray): Masque binaire 3D (0/1), shape (Z, Y, X)
+        min_size (int): Seuil minimal de taille (en voxels) pour conserver une région
+        apply_smoothing (bool): Appliquer un lissage par filtre gaussien
+        smoothing_sigma (float): Sigma du filtre gaussien
+
+    Returns:
+        np.ndarray: Masque post-traité (0/1)
+    """
+    # S'assurer que c’est bien un masque binaire
+    mask = (mask > 0).astype(np.uint8)
+
+    # Remplissage des trous internes
+    mask = binary_fill_holes(mask).astype(np.uint8)
+
+    # Morphologie : ouverture (nettoyage bruit), puis fermeture (remplit petits trous)
+    mask = binary_opening(mask, structure=np.ones((3, 3, 3))).astype(np.uint8)
+    mask = binary_closing(mask, structure=np.ones((3, 3, 3))).astype(np.uint8)
+
+    # Supprimer les petits objets
+    labeled, num = label(mask)
+    sizes = np.bincount(labeled.ravel())
+    sizes[0] = 0  # ignorer le fond
+    mask_clean = np.zeros_like(mask)
+
+    for i, size in enumerate(sizes):
+        if size >= min_size:
+            mask_clean[labeled == i] = 1
+
+    # Lissage optionnel des contours
+    if apply_smoothing:
+        smoothed = gaussian_filter(mask_clean.astype(np.float32), sigma=smoothing_sigma)
+        mask_clean = (smoothed > 0.5).astype(np.uint8)
+
+    return mask_clean
+
+def region_growing_segmentation(itk_image, seed: tuple[int, int, int], multiplier=2.5, iterations=5) -> np.ndarray:
+    """
+    Segmentation par croissance de région (ITK.ConfidenceConnected).
+    """
+    filter = itk.ConfidenceConnectedImageFilter.New(itk_image)
+    filter.SetSeed(seed)
+    filter.SetMultiplier(multiplier)
+    filter.SetNumberOfIterations(iterations)
+    filter.SetInitialNeighborhoodRadius(1)
+    filter.SetReplaceValue(1)
+    filter.Update()
+
+    segmentation = filter.GetOutput()
+    return itk.GetArrayFromImage(segmentation)
+
+def preprocess_volume(volume: np.ndarray, normalize: bool = True, apply_smoothing: bool = True) -> np.ndarray:
+    """
+    Applique un prétraitement standard à un volume médical 3D.
+    
+    Args:
+        volume (np.ndarray): Volume 3D d'intensité float32 (par exemple IRM, CT), shape (Z, Y, X)
+        normalize (bool): Appliquer la normalisation des intensités (0–1)
+        apply_smoothing (bool): Appliquer un floutage gaussien léger pour réduire le bruit
+        
+    Returns:
+        np.ndarray: Volume prétraité (même shape)
+    """
+    # Vérification du type
+    if not isinstance(volume, np.ndarray) or volume.ndim != 3:
+        raise ValueError("Le volume doit être un numpy.ndarray 3D (Z, Y, X)")
+
+    # Conversion en float32 pour compatibilité avec ITK, segmentation, etc.
+    volume = volume.astype(np.float32)
+
+    # Suppression des valeurs aberrantes (clipping à 1e et 99e percentile)
+    p1, p99 = np.percentile(volume, [1, 99])
+    volume = np.clip(volume, p1, p99)
+
+    # Normalisation optionnelle (0-1)
+    if normalize:
+        vmin, vmax = volume.min(), volume.max()
+        if vmax > vmin:
+            volume = (volume - vmin) / (vmax - vmin)
+        else:
+            volume = np.zeros_like(volume)
+
+    # Floutage optionnel (gaussien isotrope sigma=1)
+    if apply_smoothing:
+        volume = ndi.gaussian_filter(volume, sigma=1)
+
+    return volume
+
+
+def automatic_segmentation(image1_np, image2_np, image1_itk, image2_itk):
+    """
+    Effectue une segmentation automatique d'une image en utilisant un seuil.
+    
+    Args:
+        image (numpy.ndarray): Image à segmenter
+        threshold (float): Seuil pour la segmentation
+        
+    Returns:
+        numpy.ndarray: Image segmentée
+    """
+    # Appliquer un seuil pour la segmentation
+    vol1Itk = numpy_to_itk_image(image1_np, spacing=image1_itk.GetSpacing())
+    vol2Itk = numpy_to_itk_image(image2_np, spacing=image2_itk.GetSpacing())
+
+    otsu_filter1 = itk.OtsuThresholdImageFilter.New(vol1Itk)
+    otsu_filter1.SetInsideValue(0)
+    otsu_filter1.SetOutsideValue(1)
+    otsu_filter1.Update()
+    segmentation1 = otsu_filter1.GetOutput()
+
+    otsu_filter2 = itk.OtsuThresholdImageFilter.New(vol2Itk)
+    otsu_filter2.SetInsideValue(0)
+    otsu_filter2.SetOutsideValue(1)
+    otsu_filter2.Update()
+    segmentation2 = otsu_filter2.GetOutput()
+
+    seg1_np = itk.GetArrayFromImage(segmentation1)
+    seg2_np = itk.GetArrayFromImage(segmentation2)
+
+    return seg1_np, seg2_np
+
+def semi_automatic_segmentation(image1_np, image2_np, image1_itk, image2_itk, threshold1, threshold2):
+    """
+    Effectue une segmentation semi-automatique à partir de deux images
+    en utilisant un seuil défini manuellement.
+
+    Args:
+        image1_np (np.ndarray): Premier volume (référence)
+        image2_np (np.ndarray): Deuxième volume (recalé)
+        image1_itk (itk.Image): Version ITK de image1_np
+        image2_itk (itk.Image): Version ITK de image2_np
+        threshold1 (float): Seuil de segmentation pour image1
+        threshold2 (float): Seuil de segmentation pour image2
+
+    Returns:
+        tuple: (segmentation1_np, segmentation2_np), deux tableaux numpy binaires
+    """
+    # Conversion vers ITK
+    vol1Itk = numpy_to_itk_image(image1_np, spacing=image1_itk.GetSpacing())
+    vol2Itk = numpy_to_itk_image(image2_np, spacing=image2_itk.GetSpacing())
+
+    # Seuillage manuel pour image 1
+    thresh_filter1 = itk.BinaryThresholdImageFilter.New(vol1Itk)
+    thresh_filter1.SetLowerThreshold(threshold1)
+    thresh_filter1.SetUpperThreshold(255)
+    thresh_filter1.SetInsideValue(1)
+    thresh_filter1.SetOutsideValue(0)
+    thresh_filter1.Update()
+    segmentation1 = thresh_filter1.GetOutput()
+
+    # Seuillage manuel pour image 2
+    thresh_filter2 = itk.BinaryThresholdImageFilter.New(vol2Itk)
+    thresh_filter2.SetLowerThreshold(threshold2)
+    thresh_filter2.SetUpperThreshold(255)
+    thresh_filter2.SetInsideValue(1)
+    thresh_filter2.SetOutsideValue(0)
+    thresh_filter2.Update()
+    segmentation2 = thresh_filter2.GetOutput()
+
+    # Conversion vers numpy
+    seg1_np = itk.GetArrayFromImage(segmentation1)
+    seg2_np = itk.GetArrayFromImage(segmentation2)
+
+    return seg1_np, seg2_np
+
+
+def vtk_to_numpy_image(vtk_image):
+            extent = vtk_image.GetExtent()
+            dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
+            scalars = vtk_image.GetPointData().GetScalars()
+            np_image = numpy_support.vtk_to_numpy(scalars)
+            np_image = np_image.reshape(dims[::-1])  # z, y, x
+            return np_image
+
+def numpy_to_itk_image(array, spacing=(1.0, 1.0, 1.0)):
+    image = itk.image_from_array(array.astype(np.float32))
+    image.SetSpacing(spacing)
+    return image
 
 def debug_array_info(array, name="Array"):
     """
@@ -453,33 +651,82 @@ def generate_alignment_recommendations(alignment_info):
     
     return recommendations
 
+def register_vtk_images(fixed_vtk_image, moving_vtk_image):
+    """
+    Perform image registration between two 3D images (vtkImageData).
+    Returns the registered moving image as vtkImageData.
+    """
+    # Convert VTK images to numpy arrays
+    def vtk_to_numpy_image(vtk_image):
+        extent = vtk_image.GetExtent()
+        dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
+        scalars = vtk_image.GetPointData().GetScalars()
+        np_image = numpy_support.vtk_to_numpy(scalars)
+        np_image = np_image.reshape(dims[::-1])  # z, y, x
+        return np_image
 
-def create_alignment_visual_report(volume1, volume2, alignment_info, name1="Volume 1", name2="Volume 2"):
-    """
-    Crée un rapport visuel de l'alignement avec des coupes de vérification.
-    
-    Args:
-        volume1, volume2 (numpy.ndarray): Volumes à comparer
-        alignment_info (dict): Informations d'alignement
-        name1, name2 (str): Noms des volumes
-    """
-    print(f"\n{'='*60}")
-    print(f"RAPPORT VISUEL D'ALIGNEMENT")
-    print(f"{'='*60}")
-    
-    # Positions des coupes centrales
-    center = [s // 2 for s in volume1.shape]
-    
-    print(f"\nPour vérification visuelle, examinez les coupes centrales:")
-    print(f"• Coupe axiale centrale: slice {center[0]} / {volume1.shape[0]-1}")
-    print(f"• Coupe coronale centrale: slice {center[1]} / {volume1.shape[1]-1}")
-    print(f"• Coupe sagittale centrale: slice {center[2]} / {volume1.shape[2]-1}")
-    
-    print(f"\nRecommandations d'alignement:")
-    for i, rec in enumerate(alignment_info.get('recommendations', []), 1):
-        print(f"{i}. {rec}")
-    
-    print(f"\nDans l'interface interactive:")
-    print(f"• Utilisez les flèches pour naviguer et comparer les structures anatomiques")
-    print(f"• Vérifiez que les structures correspondent dans toutes les orientations")
-    print(f"• Recherchez des décalages dans les contours, vaisseaux ou tissus")
+    fixed_np = vtk_to_numpy_image(fixed_vtk_image)
+    moving_np = vtk_to_numpy_image(moving_vtk_image)
+
+    # Convert numpy arrays to ITK images
+    fixed_itk = itk.image_view_from_array(fixed_np.astype(np.float32))
+    moving_itk = itk.image_view_from_array(moving_np.astype(np.float32))
+
+    # Perform registration using ITK (rigid)
+    TransformType = itk.TranslationTransform[itk.D, 3]
+    initial_transform = TransformType.New()
+
+    MetricType = itk.MattesMutualInformationImageToImageMetricv4[
+        type(fixed_itk), type(moving_itk)
+    ]
+    metric = MetricType.New()
+    metric.SetNumberOfHistogramBins(50)
+
+    OptimizerType = itk.RegularStepGradientDescentOptimizerv4[itk.D]
+    optimizer = OptimizerType.New()
+    optimizer.SetLearningRate(4.0)
+    optimizer.SetMinimumStepLength(0.001)
+    optimizer.SetNumberOfIterations(100)
+
+    RegistrationType = itk.ImageRegistrationMethodv4[
+        type(fixed_itk), type(moving_itk)
+    ]
+    registration = RegistrationType.New()
+    registration.SetFixedImage(fixed_itk)
+    registration.SetMovingImage(moving_itk)
+    registration.SetInitialTransform(initial_transform)
+    registration.SetMetric(metric)
+    registration.SetOptimizer(optimizer)
+    registration.SetShrinkFactorsPerLevel([4, 2, 1])
+    registration.SetSmoothingSigmasPerLevel([2, 1, 0])
+
+    registration.Update()
+    final_transform = registration.GetTransform()
+
+    # Resample moving image
+    ResampleFilterType = itk.ResampleImageFilter[
+        type(moving_itk), type(fixed_itk)
+    ]
+    resampler = ResampleFilterType.New()
+    resampler.SetInput(moving_itk)
+    resampler.SetTransform(final_transform)
+    resampler.SetUseReferenceImage(True)
+    resampler.SetReferenceImage(fixed_itk)
+    resampler.SetInterpolator(
+        itk.LinearInterpolateImageFunction[type(fixed_itk), itk.D].New()
+    )
+    resampler.Update()
+
+    moved_itk = resampler.GetOutput()
+    moved_np = itk.array_view_from_image(moved_itk)
+
+    # Convert back to VTK image
+    moved_flat = moved_np.astype(np.float32).ravel(order='C')
+    vtk_moved = vtk.vtkImageData()
+    vtk_moved.SetDimensions(moved_np.shape[::-1])
+    vtk_moved.AllocateScalars(vtk.VTK_FLOAT, 1)
+    vtk_array = numpy_support.numpy_to_vtk(moved_flat, deep=True, array_type=vtk.VTK_FLOAT)
+    vtk_moved.GetPointData().SetScalars(vtk_array)
+
+    return vtk_moved
+

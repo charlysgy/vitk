@@ -25,94 +25,86 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report
+    from .utils import postprocess_segmentation, numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report
+    from utils import postprocess_segmentation, numpy_to_itk_image, debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation, preprocess_volume, region_growing_segmentation
     import config
 
-
-def register_vtk_images(fixed_vtk_image, moving_vtk_image):
+def show_3d_tumor_change(seg1_np, seg2_np, scan_np):
     """
-    Perform image registration between two 3D images (vtkImageData).
-    Returns the registered moving image as vtkImageData.
+    Affiche le crâne issu du scan (gris), la tumeur 1 (bleu) et la tumeur 2 (rouge) dans la même scène 3D.
     """
-    # Convert VTK images to numpy arrays
-    def vtk_to_numpy_image(vtk_image):
-        extent = vtk_image.GetExtent()
-        dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
-        scalars = vtk_image.GetPointData().GetScalars()
-        np_image = numpy_support.vtk_to_numpy(scalars)
-        np_image = np_image.reshape(dims[::-1])  # z, y, x
-        return np_image
+    import vtk
 
-    fixed_np = vtk_to_numpy_image(fixed_vtk_image)
-    moving_np = vtk_to_numpy_image(moving_vtk_image)
+    def numpy_to_vtk_mask(np_mask):
+        dims = np_mask.shape[::-1]
+        vtk_img = vtk.vtkImageData()
+        vtk_img.SetDimensions(dims)
+        vtk_img.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+        flat = np_mask.astype(np.uint8).ravel(order='C')
+        vtk_arr = numpy_support.numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+        vtk_img.GetPointData().SetScalars(vtk_arr)
+        return vtk_img
 
-    # Convert numpy arrays to ITK images
-    fixed_itk = itk.image_view_from_array(fixed_np.astype(np.float32))
-    moving_itk = itk.image_view_from_array(moving_np.astype(np.float32))
+    def numpy_to_vtk_image(np_img):
+        dims = np_img.shape[::-1]
+        vtk_img = vtk.vtkImageData()
+        vtk_img.SetDimensions(dims)
+        vtk_img.AllocateScalars(vtk.VTK_FLOAT, 1)
+        flat = np_img.astype(np.float32).ravel(order='C')
+        vtk_arr = numpy_support.numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_FLOAT)
+        vtk_img.GetPointData().SetScalars(vtk_arr)
+        return vtk_img
 
-    # Perform registration using ITK (rigid)
-    TransformType = itk.TranslationTransform[itk.D, 3]
-    initial_transform = TransformType.New()
+    def make_surface(vtk_img, color, opacity=0.4):
+        contour = vtk.vtkMarchingCubes()
+        contour.SetInputData(vtk_img)
+        contour.SetValue(0, 0.5)
+        contour.Update()
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(contour.GetOutputPort())
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(color)
+        actor.GetProperty().SetDiffuseColor(color)
+        actor.GetProperty().SetDiffuse(1.0)
+        actor.GetProperty().SetAmbient(0.3)
+        actor.GetProperty().SetSpecular(0.0)
+        actor.GetProperty().SetOpacity(opacity)
+        actor.GetProperty().SetInterpolationToPhong()
+        return actor
 
-    MetricType = itk.MattesMutualInformationImageToImageMetricv4[
-        type(fixed_itk), type(moving_itk)
-    ]
-    metric = MetricType.New()
-    metric.SetNumberOfHistogramBins(50)
+    # --- Génération de la surface du crâne ---
+    # On suppose que les valeurs élevées correspondent à l'os (par exemple > 200)
+    skull_threshold = 200  # À ajuster selon ton scanner
+    skull_mask = (scan_np > skull_threshold).astype(np.uint8)
+    vtk_skull = numpy_to_vtk_mask(skull_mask)
+    actor_skull = make_surface(vtk_skull, (0.8, 0.8, 0.8), 0.05)  # Gris translucide
 
-    OptimizerType = itk.RegularStepGradientDescentOptimizerv4[itk.D]
-    optimizer = OptimizerType.New()
-    optimizer.SetLearningRate(4.0)
-    optimizer.SetMinimumStepLength(0.001)
-    optimizer.SetNumberOfIterations(100)
+    # --- Génération des surfaces des tumeurs ---
+    vtk1 = numpy_to_vtk_mask(seg1_np)
+    vtk2 = numpy_to_vtk_mask(seg2_np)
+    actor1 = make_surface(vtk1, (0, 0, 1), 0.7)  # Bleu
+    actor2 = make_surface(vtk2, (1, 0, 0), 0.7)  # Rouge
 
-    RegistrationType = itk.ImageRegistrationMethodv4[
-        type(fixed_itk), type(moving_itk)
-    ]
-    registration = RegistrationType.New()
-    registration.SetFixedImage(fixed_itk)
-    registration.SetMovingImage(moving_itk)
-    registration.SetInitialTransform(initial_transform)
-    registration.SetMetric(metric)
-    registration.SetOptimizer(optimizer)
-    registration.SetShrinkFactorsPerLevel([4, 2, 1])
-    registration.SetSmoothingSigmasPerLevel([2, 1, 0])
+    # --- Affichage ---
+    renderer = vtk.vtkRenderer()
+    renderer.AddActor(actor_skull)
+    renderer.AddActor(actor1)
+    renderer.AddActor(actor2)
+    renderer.SetBackground(0.1, 0.1, 0.1)
 
-    registration.Update()
-    final_transform = registration.GetTransform()
+    render_window = vtk.vtkRenderWindow()
+    render_window.AddRenderer(renderer)
+    render_window.SetSize(900, 900)
 
-    # Resample moving image
-    ResampleFilterType = itk.ResampleImageFilter[
-        type(moving_itk), type(fixed_itk)
-    ]
-    resampler = ResampleFilterType.New()
-    resampler.SetInput(moving_itk)
-    resampler.SetTransform(final_transform)
-    resampler.SetUseReferenceImage(True)
-    resampler.SetReferenceImage(fixed_itk)
-    resampler.SetInterpolator(
-        itk.LinearInterpolateImageFunction[type(fixed_itk), itk.D].New()
-    )
-    resampler.Update()
-
-    moved_itk = resampler.GetOutput()
-    moved_np = itk.array_view_from_image(moved_itk)
-
-    # Convert back to VTK image
-    moved_flat = moved_np.astype(np.float32).ravel(order='C')
-    vtk_moved = vtk.vtkImageData()
-    vtk_moved.SetDimensions(moved_np.shape[::-1])
-    vtk_moved.AllocateScalars(vtk.VTK_FLOAT, 1)
-    vtk_array = numpy_support.numpy_to_vtk(moved_flat, deep=True, array_type=vtk.VTK_FLOAT)
-    vtk_moved.GetPointData().SetScalars(vtk_array)
-
-    return vtk_moved
-
+    interactor = vtk.vtkRenderWindowInteractor()
+    interactor.SetRenderWindow(render_window)
+    render_window.Render()
+    interactor.Start()
 
 def main():
     """Point d'entrée principal de l'application"""
@@ -164,7 +156,6 @@ def main():
         print("="*50)
         
         alignment_info = check_volume_alignment(array1, array2, "case6_gre1", "case6_gre2")
-        create_alignment_visual_report(array1, array2, alignment_info, "case6_gre1", "case6_gre2")
         
         # Test de conversion VTK
         print("\n" + "="*50)
@@ -188,14 +179,6 @@ def main():
         print("✓ Recalage terminé")
         
         # Conversion de l'image recalée vers numpy pour l'affichage
-        def vtk_to_numpy_image(vtk_image):
-            extent = vtk_image.GetExtent()
-            dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
-            scalars = vtk_image.GetPointData().GetScalars()
-            np_image = numpy_support.vtk_to_numpy(scalars)
-            np_image = np_image.reshape(dims[::-1])  # z, y, x
-            return np_image
-        
         array3 = vtk_to_numpy_image(image3_vtk)
         print(f"  Image recalée - Dimensions: {array3.shape}")
         
@@ -206,7 +189,32 @@ def main():
         print("Affichage: Image 1 (référence) vs Image 2 (recalée)")
         
         show_interactive_comparison(array1, array3)
-        
+
+        print('=' * 50)
+        print("Segmentation")
+        print('=' * 50)
+
+        # PRETRAITEMENT
+        preprocessed_volume1_np = preprocess_volume(array1)
+        preprocessed_volume2_np = preprocess_volume(array3)
+        preprocessed_volume1_itk = numpy_to_itk_image(preprocessed_volume1_np)
+        preprocessed_volume2_itk = numpy_to_itk_image(preprocessed_volume2_np)
+
+        # SEGEMENTATION
+        seg1_np = region_growing_segmentation(preprocessed_volume1_itk, (85, 70, 50))
+        seg2_np = region_growing_segmentation(preprocessed_volume2_itk, (85, 70, 50))
+
+        # POST-TRAITEMENT\
+        final1_np = postprocess_segmentation(seg1_np)
+        final2_np = postprocess_segmentation(seg2_np)
+
+        show_interactive_comparison(final1_np, final2_np)
+
+        print('=' * 50)
+        print("Visualisation 3D des changements de la tumeur")
+        print('=' * 50)
+        show_3d_tumor_change(final1_np, final2_np, array1)
+
     except Exception as e:
         print(f"\nErreur: {e}")
         import traceback

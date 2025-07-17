@@ -16,10 +16,10 @@ from pathlib import Path
 # Import des modules locaux
 try:
     from .converters import load_medical_image
-    from .utils import check_volume_alignment, create_alignment_visual_report
+    from .utils import check_volume_alignment
 except ImportError:
     from converters import load_medical_image
-    from utils import check_volume_alignment, create_alignment_visual_report
+    from utils import check_volume_alignment
 
 
 def main():
@@ -53,7 +53,6 @@ def main():
         
         # Vérification de l'alignement spatial
         alignment_info = check_volume_alignment(array1, array2, "case6_gre1", "case6_gre2")
-        create_alignment_visual_report(array1, array2, alignment_info, "case6_gre1", "case6_gre2")
         
         # Résumé final
         print(f"\n{'='*60}")

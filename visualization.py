@@ -48,9 +48,9 @@ class InteractiveImageViewer:
         self.calculate_intensity_levels()
         
         # Position actuelle des coupes
-        self.axial_slice = self.shape[0] // 2
-        self.coronal_slice = self.shape[1] // 2
-        self.sagittal_slice = self.shape[2] // 2
+        self.axial_slice = 50 # A la mano
+        self.coronal_slice = 70 # A la mano
+        self.sagittal_slice = 85 # A la mano
         
         # Conversion en VTK - utiliser la version simplifiée pour débugger
         self.vtk_volume1 = simple_numpy_to_vtk(volume1)
@@ -66,6 +66,15 @@ class InteractiveImageViewer:
     
     def calculate_intensity_levels(self):
         """Calcule automatiquement les niveaux d'intensité optimaux"""
+        # Cas particulier : segmentation binaire
+        if np.array_equal(np.unique(self.volume1), [0, 1]) and np.array_equal(np.unique(self.volume2), [0, 1]):
+            self.min_intensity = 0
+            self.max_intensity = 1
+            self.window  = 1
+            self.level = 0.5
+            print("Niveaux d'intensité (binaire) définis : Window = 1, Level = 0.5")
+            return
+
         stats = calculate_intensity_stats(self.volume1, self.volume2)
         
         if 'display' in stats:
@@ -74,7 +83,6 @@ class InteractiveImageViewer:
             self.min_intensity = stats['combined']['min_intensity']
             self.max_intensity = stats['combined']['max_intensity']
         else:
-            # Fallback si un seul volume
             self.min_intensity = stats['volume1']['percentile_1']
             self.max_intensity = stats['volume1']['percentile_99']
             self.window = self.max_intensity - self.min_intensity
@@ -83,6 +91,7 @@ class InteractiveImageViewer:
         print(f"Niveaux d'intensité calculés:")
         print(f"  Min: {self.min_intensity:.2f}, Max: {self.max_intensity:.2f}")
         print(f"  Window: {self.window:.2f}, Level: {self.level:.2f}")
+
     
     def setup_gui(self):
         """Configure l'interface graphique VTK"""
@@ -219,6 +228,7 @@ class InteractiveImageViewer:
         if key == 'q' or key == 'Escape':
             print("Fermeture de l'application...")
             self.cleanup_and_exit()
+            return  # Sortir immédiatement après la fermeture
         elif key == 'Up':
             self.axial_slice = min(self.axial_slice + 1, self.shape[0] - 1)
         elif key == 'Down':
@@ -260,15 +270,19 @@ class InteractiveImageViewer:
     
     def cleanup_and_exit(self):
         """Nettoie les ressources et ferme proprement l'application"""
+        # Éviter la récursion en marquant qu'on est en cours de fermeture
+        if hasattr(self, '_closing') and self._closing:
+            return
+        self._closing = True
+        
         try:
-            # Arrêter l'interactor
-            if hasattr(self, 'interactor') and self.interactor:
-                self.interactor.ExitCallback()
-                self.interactor.TerminateApp()
-            
-            # Fermer la fenêtre de rendu
+            # Fermer la fenêtre de rendu d'abord
             if hasattr(self, 'render_window') and self.render_window:
                 self.render_window.Finalize()
+                
+            # Arrêter l'interactor sans appeler ExitCallback (évite la récursion)
+            if hasattr(self, 'interactor') and self.interactor:
+                self.interactor.TerminateApp()
                 
             # Nettoyer les références
             self.render_window = None
@@ -276,9 +290,9 @@ class InteractiveImageViewer:
             
         except Exception as e:
             print(f"Erreur lors du nettoyage: {e}")
-        finally:
-            import sys
-            sys.exit(0)
+        
+        print("Fermeture de l'application...")
+        # Ne pas appeler sys.exit() dans le gestionnaire d'événements VTK
     
     def print_controls(self):
         """Affiche les contrôles disponibles"""
@@ -308,6 +322,9 @@ class InteractiveImageViewer:
         except Exception as e:
             print(f"Erreur lors de l'affichage: {e}")
             self.cleanup_and_exit()
+        
+        # Après la fermeture normale de l'interface
+        print("Interface fermée normalement.")
     
     def check_alignment_interactively(self):
         """Affiche des informations d'alignement pour la position actuelle"""
