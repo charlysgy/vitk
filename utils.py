@@ -16,6 +16,83 @@ import vtk
 import numpy as np
 from vtk.util import numpy_support
 
+def automatic_segmentation(image1_np, image2_np, image1_itk, image2_itk):
+    """
+    Effectue une segmentation automatique d'une image en utilisant un seuil.
+    
+    Args:
+        image (numpy.ndarray): Image à segmenter
+        threshold (float): Seuil pour la segmentation
+        
+    Returns:
+        numpy.ndarray: Image segmentée
+    """
+    # Appliquer un seuil pour la segmentation
+    vol1Itk = numpy_to_itk_image(image1_np, spacing=image1_itk.GetSpacing())
+    vol2Itk = numpy_to_itk_image(image2_np, spacing=image2_itk.GetSpacing())
+
+    otsu_filter1 = itk.OtsuThresholdImageFilter.New(vol1Itk)
+    otsu_filter1.SetInsideValue(0)
+    otsu_filter1.SetOutsideValue(1)
+    otsu_filter1.Update()
+    segmentation1 = otsu_filter1.GetOutput()
+
+    otsu_filter2 = itk.OtsuThresholdImageFilter.New(vol2Itk)
+    otsu_filter2.SetInsideValue(0)
+    otsu_filter2.SetOutsideValue(1)
+    otsu_filter2.Update()
+    segmentation2 = otsu_filter2.GetOutput()
+
+    seg1_np = itk.GetArrayFromImage(segmentation1)
+    seg2_np = itk.GetArrayFromImage(segmentation2)
+
+    return seg1_np, seg2_np
+
+def semi_automatic_segmentation(image1_np, image2_np, image1_itk, image2_itk, threshold1, threshold2):
+    """
+    Effectue une segmentation semi-automatique à partir de deux images
+    en utilisant un seuil défini manuellement.
+
+    Args:
+        image1_np (np.ndarray): Premier volume (référence)
+        image2_np (np.ndarray): Deuxième volume (recalé)
+        image1_itk (itk.Image): Version ITK de image1_np
+        image2_itk (itk.Image): Version ITK de image2_np
+        threshold1 (float): Seuil de segmentation pour image1
+        threshold2 (float): Seuil de segmentation pour image2
+
+    Returns:
+        tuple: (segmentation1_np, segmentation2_np), deux tableaux numpy binaires
+    """
+    # Conversion vers ITK
+    vol1Itk = numpy_to_itk_image(image1_np, spacing=image1_itk.GetSpacing())
+    vol2Itk = numpy_to_itk_image(image2_np, spacing=image2_itk.GetSpacing())
+
+    # Seuillage manuel pour image 1
+    thresh_filter1 = itk.BinaryThresholdImageFilter.New(vol1Itk)
+    thresh_filter1.SetLowerThreshold(threshold1)
+    thresh_filter1.SetUpperThreshold(255)
+    thresh_filter1.SetInsideValue(1)
+    thresh_filter1.SetOutsideValue(0)
+    thresh_filter1.Update()
+    segmentation1 = thresh_filter1.GetOutput()
+
+    # Seuillage manuel pour image 2
+    thresh_filter2 = itk.BinaryThresholdImageFilter.New(vol2Itk)
+    thresh_filter2.SetLowerThreshold(threshold2)
+    thresh_filter2.SetUpperThreshold(255)
+    thresh_filter2.SetInsideValue(1)
+    thresh_filter2.SetOutsideValue(0)
+    thresh_filter2.Update()
+    segmentation2 = thresh_filter2.GetOutput()
+
+    # Conversion vers numpy
+    seg1_np = itk.GetArrayFromImage(segmentation1)
+    seg2_np = itk.GetArrayFromImage(segmentation2)
+
+    return seg1_np, seg2_np
+
+
 def vtk_to_numpy_image(vtk_image):
             extent = vtk_image.GetExtent()
             dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
@@ -467,38 +544,6 @@ def generate_alignment_recommendations(alignment_info):
         recommendations.append("Aucune correction majeure nécessaire")
     
     return recommendations
-
-
-def create_alignment_visual_report(volume1, volume2, alignment_info, name1="Volume 1", name2="Volume 2"):
-    """
-    Crée un rapport visuel de l'alignement avec des coupes de vérification.
-    
-    Args:
-        volume1, volume2 (numpy.ndarray): Volumes à comparer
-        alignment_info (dict): Informations d'alignement
-        name1, name2 (str): Noms des volumes
-    """
-    print(f"\n{'='*60}")
-    print(f"RAPPORT VISUEL D'ALIGNEMENT")
-    print(f"{'='*60}")
-    
-    # Positions des coupes centrales
-    center = [s // 2 for s in volume1.shape]
-    
-    print(f"\nPour vérification visuelle, examinez les coupes centrales:")
-    print(f"• Coupe axiale centrale: slice {center[0]} / {volume1.shape[0]-1}")
-    print(f"• Coupe coronale centrale: slice {center[1]} / {volume1.shape[1]-1}")
-    print(f"• Coupe sagittale centrale: slice {center[2]} / {volume1.shape[2]-1}")
-    
-    print(f"\nRecommandations d'alignement:")
-    for i, rec in enumerate(alignment_info.get('recommendations', []), 1):
-        print(f"{i}. {rec}")
-    
-    print(f"\nDans l'interface interactive:")
-    print(f"• Utilisez les flèches pour naviguer et comparer les structures anatomiques")
-    print(f"• Vérifiez que les structures correspondent dans toutes les orientations")
-    print(f"• Recherchez des décalages dans les contours, vaisseaux ou tissus")
-
 
 def register_vtk_images(fixed_vtk_image, moving_vtk_image):
     """

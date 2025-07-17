@@ -70,7 +70,7 @@ class InteractiveImageViewer:
         if np.array_equal(np.unique(self.volume1), [0, 1]) and np.array_equal(np.unique(self.volume2), [0, 1]):
             self.min_intensity = 0
             self.max_intensity = 1
-            self.window = 1
+            self.window  = 1
             self.level = 0.5
             print("Niveaux d'intensité (binaire) définis : Window = 1, Level = 0.5")
             return

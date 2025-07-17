@@ -25,12 +25,12 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images, numpy_to_itk_image, vtk_to_numpy_image
+    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images, numpy_to_itk_image, vtk_to_numpy_image
+    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, register_vtk_images, semi_automatic_segmentation, vtk_to_numpy_image, automatic_segmentation
     import config
 
 
@@ -84,7 +84,6 @@ def main():
         print("="*50)
         
         alignment_info = check_volume_alignment(array1, array2, "case6_gre1", "case6_gre2")
-        create_alignment_visual_report(array1, array2, alignment_info, "case6_gre1", "case6_gre2")
         
         # Test de conversion VTK
         print("\n" + "="*50)
@@ -123,24 +122,7 @@ def main():
         print("Segmentation")
         print('=' * 50)
 
-        vol1Itk = numpy_to_itk_image(array1, spacing=image1_itk.GetSpacing())
-        vol2Itk = numpy_to_itk_image(array3, spacing=image2_itk.GetSpacing())
-
-        otsu_filter1 = itk.OtsuThresholdImageFilter.New(vol1Itk)
-        otsu_filter1.SetInsideValue(0)
-        otsu_filter1.SetOutsideValue(1)
-        otsu_filter1.Update()
-        segmentation1 = otsu_filter1.GetOutput()
-
-        otsu_filter2 = itk.OtsuThresholdImageFilter.New(vol2Itk)
-        otsu_filter2.SetInsideValue(0)
-        otsu_filter2.SetOutsideValue(1)
-        otsu_filter2.Update()
-        segmentation2 = otsu_filter2.GetOutput()
-
-        seg1_np = itk.GetArrayFromImage(segmentation1)
-        seg2_np = itk.GetArrayFromImage(segmentation2)
-
+        seg1_np, seg2_np = semi_automatic_segmentation(array1, array3, image1_itk, image2_itk, int(200), int(200))
         show_interactive_comparison(seg1_np, seg2_np)
 
     except Exception as e:
