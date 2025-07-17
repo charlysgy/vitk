@@ -219,6 +219,7 @@ class InteractiveImageViewer:
         if key == 'q' or key == 'Escape':
             print("Fermeture de l'application...")
             self.cleanup_and_exit()
+            return  # Sortir immédiatement après la fermeture
         elif key == 'Up':
             self.axial_slice = min(self.axial_slice + 1, self.shape[0] - 1)
         elif key == 'Down':
@@ -260,15 +261,19 @@ class InteractiveImageViewer:
     
     def cleanup_and_exit(self):
         """Nettoie les ressources et ferme proprement l'application"""
+        # Éviter la récursion en marquant qu'on est en cours de fermeture
+        if hasattr(self, '_closing') and self._closing:
+            return
+        self._closing = True
+        
         try:
-            # Arrêter l'interactor
-            if hasattr(self, 'interactor') and self.interactor:
-                self.interactor.ExitCallback()
-                self.interactor.TerminateApp()
-            
-            # Fermer la fenêtre de rendu
+            # Fermer la fenêtre de rendu d'abord
             if hasattr(self, 'render_window') and self.render_window:
                 self.render_window.Finalize()
+                
+            # Arrêter l'interactor sans appeler ExitCallback (évite la récursion)
+            if hasattr(self, 'interactor') and self.interactor:
+                self.interactor.TerminateApp()
                 
             # Nettoyer les références
             self.render_window = None
@@ -276,9 +281,9 @@ class InteractiveImageViewer:
             
         except Exception as e:
             print(f"Erreur lors du nettoyage: {e}")
-        finally:
-            import sys
-            sys.exit(0)
+        
+        print("Fermeture de l'application...")
+        # Ne pas appeler sys.exit() dans le gestionnaire d'événements VTK
     
     def print_controls(self):
         """Affiche les contrôles disponibles"""
@@ -308,6 +313,9 @@ class InteractiveImageViewer:
         except Exception as e:
             print(f"Erreur lors de l'affichage: {e}")
             self.cleanup_and_exit()
+        
+        # Après la fermeture normale de l'interface
+        print("Interface fermée normalement.")
     
     def check_alignment_interactively(self):
         """Affiche des informations d'alignement pour la position actuelle"""

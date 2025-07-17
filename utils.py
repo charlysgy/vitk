@@ -16,6 +16,19 @@ import vtk
 import numpy as np
 from vtk.util import numpy_support
 
+def vtk_to_numpy_image(vtk_image):
+            extent = vtk_image.GetExtent()
+            dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
+            scalars = vtk_image.GetPointData().GetScalars()
+            np_image = numpy_support.vtk_to_numpy(scalars)
+            np_image = np_image.reshape(dims[::-1])  # z, y, x
+            return np_image
+
+def numpy_to_itk_image(array, spacing=(1.0, 1.0, 1.0)):
+    image = itk.image_from_array(array.astype(np.float32))
+    image.SetSpacing(spacing)
+    return image
+
 def debug_array_info(array, name="Array"):
     """
     Affiche des informations détaillées de débogage sur un array NumPy.

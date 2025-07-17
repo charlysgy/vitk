@@ -25,12 +25,12 @@ try:
     # Imports en tant que package
     from .converters import load_medical_image, simple_numpy_to_vtk
     from .visualization import show_interactive_comparison
-    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images
+    from .utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images, numpy_to_itk_image, vtk_to_numpy_image
 except ImportError:
     # Imports pour exécution directe
     from converters import load_medical_image, simple_numpy_to_vtk
     from visualization import show_interactive_comparison
-    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images
+    from utils import debug_array_info, print_intensity_stats, calculate_intensity_stats, compare_volumes, check_volume_alignment, create_alignment_visual_report, register_vtk_images, numpy_to_itk_image, vtk_to_numpy_image
     import config
 
 
@@ -108,14 +108,6 @@ def main():
         print("✓ Recalage terminé")
         
         # Conversion de l'image recalée vers numpy pour l'affichage
-        def vtk_to_numpy_image(vtk_image):
-            extent = vtk_image.GetExtent()
-            dims = (extent[1] - extent[0] + 1, extent[3] - extent[2] + 1, extent[5] - extent[4] + 1)
-            scalars = vtk_image.GetPointData().GetScalars()
-            np_image = numpy_support.vtk_to_numpy(scalars)
-            np_image = np_image.reshape(dims[::-1])  # z, y, x
-            return np_image
-        
         array3 = vtk_to_numpy_image(image3_vtk)
         print(f"  Image recalée - Dimensions: {array3.shape}")
         
@@ -126,7 +118,31 @@ def main():
         print("Affichage: Image 1 (référence) vs Image 2 (recalée)")
         
         show_interactive_comparison(array1, array3)
-        
+
+        print('=' * 50)
+        print("Segmentation")
+        print('=' * 50)
+
+        vol1Itk = numpy_to_itk_image(array1, spacing=image1_itk.GetSpacing())
+        vol2Itk = numpy_to_itk_image(array3, spacing=image2_itk.GetSpacing())
+
+        otsu_filter1 = itk.OtsuThresholdImageFilter.New(vol1Itk)
+        otsu_filter1.SetInsideValue(0)
+        otsu_filter1.SetOutsideValue(1)
+        otsu_filter1.Update()
+        segmentation1 = otsu_filter1.GetOutput()
+
+        otsu_filter2 = itk.OtsuThresholdImageFilter.New(vol2Itk)
+        otsu_filter2.SetInsideValue(0)
+        otsu_filter2.SetOutsideValue(1)
+        otsu_filter2.Update()
+        segmentation2 = otsu_filter2.GetOutput()
+
+        seg1_np = itk.GetArrayFromImage(segmentation1)
+        seg2_np = itk.GetArrayFromImage(segmentation2)
+
+        show_interactive_comparison(seg1_np, seg2_np)
+
     except Exception as e:
         print(f"\nErreur: {e}")
         import traceback
